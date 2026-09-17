@@ -1,0 +1,215 @@
+#!/usr/bin/env python3
+import os
+import sys
+import json
+import time
+import signal
+import socket
+import subprocess
+
+PORT = 8081
+HOST = "127.0.0.1"
+STATE_DIR = os.path.expanduser("~/.local/state/languagetool-server")
+PID_FILE = os.path.join(STATE_DIR, "server.pid")
+LOG_FILE = os.path.join(STATE_DIR, "server.log")
+SERVER_CLASS = "org.languagetool.server.HTTPServer"
+LAUNCHER = "/usr/bin/languagetool"
+
+
+def http_get(path, timeout=2.0):
+    import http.client
+    try:
+        conn = http.client.HTTPConnection(HOST, PORT, timeout=timeout)
+        conn.request("GET", path)
+        resp = conn.getresponse()
+        body = resp.read()
+        conn.close()
+        return resp.status, body
+    except Exception:
+        return None, None
+
+
+def port_open():
+    try:
+        sock = socket.create_connection((HOST, PORT), timeout=0.8)
+        sock.close()
+        return True
+    except OSError:
+        return False
+
+
+def read_pid():
+    try:
+        with open(PID_FILE) as handle:
+            return int(handle.read().strip())
+    except (OSError, ValueError):
+        return None
+
+
+def pid_alive(pid):
+    if not pid:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def is_lt_process(pid):
+    try:
+        with open("/proc/%d/cmdline" % pid, "rb") as handle:
+            cmd = handle.read().replace(b"\x00", b" ").decode(errors="ignore")
+        return SERVER_CLASS in cmd
+    except OSError:
+        return False
+
+
+def find_pids():
+    found = []
+    for entry in os.listdir("/proc"):
+        if not entry.isdigit():
+            continue
+        pid = int(entry)
+        if is_lt_process(pid):
+            found.append(pid)
+    return found
+
+
+def status():
+    running = port_open()
+    pid = read_pid()
+    if not (pid and pid_alive(pid) and is_lt_process(pid)):
+        pid = None
+    info = {
+        "ok": True,
+        "running": running,
+        "pid": pid,
+        "port": PORT,
+        "startedViaPlugin": pid is not None,
+        "en": False,
+        "fr": False,
+        "languageCount": 0,
+        "error": "",
+    }
+    if running:
+        code, body = http_get("/v2/languages")
+        if code == 200:
+            try:
+                data = json.loads(body)
+                info["languageCount"] = len(data)
+                for entry in data:
+                    language = str(entry.get("code", ""))
+                    if language.lower().startswith("en"):
+                        info["en"] = True
+                    elif language.lower().startswith("fr"):
+                        info["fr"] = True
+            except Exception:
+                pass
+    return info
+
+
+def start():
+    if port_open():
+        info = status()
+        info["already"] = True
+        return info
+    os.makedirs(STATE_DIR, exist_ok=True)
+    with open(LOG_FILE, "ab") as log:
+        try:
+            proc = subprocess.Popen(
+                [LAUNCHER, "--http", "--allow-origin", "*"],
+                stdin=subprocess.DEVNULL,
+                stdout=log,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+        except OSError as error:
+            return {"ok": False, "running": False, "error": "failed to launch server: %s" % error}
+    with open(PID_FILE, "w") as handle:
+        handle.write(str(proc.pid))
+    deadline = time.time() + 45
+    while time.time() < deadline:
+        if port_open():
+            break
+        if proc.poll() is not None:
+            break
+        time.sleep(0.5)
+    if not port_open():
+        detail = ""
+        try:
+            with open(LOG_FILE, "rb") as handle:
+                handle.seek(0, os.SEEK_END)
+                handle.seek(max(handle.tell() - 4000, 0))
+                detail = handle.read().decode(errors="ignore").strip()
+        except OSError:
+            pass
+        if detail:
+            detail = detail.splitlines()[-1]
+        return {
+            "ok": False,
+            "running": False,
+            "error": detail or "server did not become ready on port %d" % PORT,
+        }
+    info = status()
+    info["already"] = False
+    return info
+
+
+def stop():
+    pids = find_pids() or []
+    if not pids:
+        try:
+            os.remove(PID_FILE)
+        except OSError:
+            pass
+        return {"ok": True, "running": port_open(), "pid": None, "killed": pids, "error": ""}
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            pass
+    deadline = time.time() + 12
+    while time.time() < deadline and port_open():
+        time.sleep(0.3)
+    for pid in pids:
+        if pid_alive(pid) and is_lt_process(pid):
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except OSError:
+                pass
+    try:
+        os.remove(PID_FILE)
+    except OSError:
+        pass
+    return {"ok": True, "running": port_open(), "pid": None, "killed": pids, "error": ""}
+
+
+def main():
+    if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
+        print(json.dumps({
+            "ok": True,
+            "usage": "languagetoolctl status|start|stop",
+            "error": "",
+        }))
+        return 0
+    command = sys.argv[1]
+    try:
+        if command == "status":
+            result = status()
+        elif command == "start":
+            result = start()
+        elif command == "stop":
+            result = stop()
+        else:
+            print(json.dumps({"ok": False, "error": "unknown command: %s" % command}))
+            return 1
+    except Exception as error:
+        print(json.dumps({"ok": False, "error": str(error)}))
+        return 1
+    print(json.dumps(result, indent=2))
+    return 0 if result.get("ok") else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
