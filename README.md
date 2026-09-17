@@ -76,12 +76,20 @@ real failure:
 
 ## Development
 
-Files under `~/.config/omarchy/plugins/` are watched by the running shell; save
-a QML file and the plugin is rescanned. Force a rescan or full restart with:
+This directory is the git repository. Save a QML file in
+`~/.config/omarchy/plugins/` and the shell notices ("Local plugin changed,
+reloading:"), but the reload keeps previously compiled QML, so edits to
+`Service.qml`/`Panel.qml`/`BarWidget.qml` do **not** take effect until the shell
+is restarted:
+
+```sh
+omarchy restart shell
+```
+
+Force a rescan of the plugin list with:
 
 ```sh
 omarchy-shell shell rescanPlugins
-omarchy restart shell
 ```
 
 Validate before publishing:
@@ -90,7 +98,7 @@ Validate before publishing:
 omarchy plugin validate .
 ```
 
-To inspect QML load errors:
+To inspect QML load errors and record the current instance:
 
 ```sh
 quickshell list --all
