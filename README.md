@@ -3,6 +3,8 @@
 Run and control the local LanguageTool grammar-check server straight from the
 Omarchy bar. English and French are supported out of the box.
 
+License: MIT (see `LICENSE`).
+
 ## What it does
 
 LanguageTool 6.6 is installed system-wide from the Arch `extra` repository
