@@ -52,6 +52,12 @@ Panel {
     return text
   }
 
+  function copyToClipboard(value) {
+    var text = String(value || "")
+    if (text === "") return
+    Quickshell.execDetached(["bash", "-c", "printf %s " + Util.shellQuote(text) + " | wl-copy"])
+  }
+
   onOpenedChanged: {
     if (opened && service && service.refresh) service.refresh()
   }
@@ -157,11 +163,27 @@ Panel {
               font.letterSpacing: 1
               width: Style.space(110)
             }
-            Text {
-              text: running ? "http://localhost:" + service.port : "—"
-              color: root.foreground
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.body
+            Row {
+              spacing: Style.space(8)
+              Text {
+                text: running ? "http://localhost:" + service.port : "—"
+                color: root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.body
+                anchors.verticalCenter: parent.verticalCenter
+              }
+              Button {
+                visible: running
+                iconText: "󰅌"
+                tooltipText: "Copy to clipboard"
+                fontFamily: root.fontFamily
+                foreground: root.foreground
+                horizontalPadding: Style.space(5)
+                verticalPadding: Style.space(2)
+                iconSize: Style.font.bodySmall
+                anchors.verticalCenter: parent.verticalCenter
+                onClicked: root.copyToClipboard("http://localhost:" + service.port)
+              }
             }
           }
 
