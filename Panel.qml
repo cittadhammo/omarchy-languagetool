@@ -55,7 +55,7 @@ Panel {
   function copyToClipboard(value) {
     var text = String(value || "")
     if (text === "") return
-    Quickshell.execDetached(["bash", "-c", "printf %s " + Util.shellQuote(text) + " | wl-copy"])
+    Util.execDetached("printf %s " + Util.shellQuote(text) + " | wl-copy")
   }
 
   onOpenedChanged: {
