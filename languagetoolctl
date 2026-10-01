@@ -56,23 +56,65 @@ def pid_alive(pid):
         return False
 
 
+def _lt_from_tokens(tokens):
+    """Decide from an argv token list whether it is the LanguageTool server.
+
+    A process qualifies only when:
+    - its executable is a Java launcher running SERVER_CLASS as its main
+      class (an exact argv token, never a substring match, so a process
+      whose arguments merely mention the class name - a log file name, a
+      grep pattern - does not qualify) and its classpath points at the
+      system LanguageTool install; or
+    - it is the /usr/bin/languagetool wrapper still in its pre-exec window
+      with --http in its arguments.
+    """
+    if not tokens:
+        return False
+    exe = os.path.basename(tokens[0])
+    args = tokens[1:]
+    if exe == "java":
+        if args.count(SERVER_CLASS) != 1:
+            return False
+        classpath = ""
+        for i, arg in enumerate(args):
+            if arg in ("-cp", "-classpath", "--class-path"):
+                if i + 1 < len(args):
+                    classpath = args[i + 1]
+                break
+        return "languagetool" in classpath
+    if tokens[0] == LAUNCHER:
+        return "--http" in args
+    return False
+
+
 def is_lt_process(pid):
+    """True only for the LanguageTool server process itself (see
+    _lt_from_tokens for the criteria)."""
     try:
         with open("/proc/%d/cmdline" % pid, "rb") as handle:
-            cmd = handle.read().replace(b"\x00", b" ").decode(errors="ignore")
-        return SERVER_CLASS in cmd
+            raw = handle.read()
     except OSError:
         return False
+    tokens = [t.decode(errors="ignore") for t in raw.split(b"\x00") if t]
+    return _lt_from_tokens(tokens)
 
 
 def find_pids():
+    """Verified LanguageTool server PIDs: recorded PID first, then a strict
+    /proc scan so servers started outside the plugin are still found."""
     found = []
+    pid = read_pid()
+    if pid and pid_alive(pid) and is_lt_process(pid):
+        found.append(pid)
+    me = os.getpid()
     for entry in os.listdir("/proc"):
         if not entry.isdigit():
             continue
-        pid = int(entry)
-        if is_lt_process(pid):
-            found.append(pid)
+        cand = int(entry)
+        if cand in found or cand == me:
+            continue
+        if is_lt_process(cand):
+            found.append(cand)
     return found
 
 

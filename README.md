@@ -72,9 +72,11 @@ real failure:
   and waits until the port accepts connections. Its PID is recorded in
   `~/.local/state/languagetool-server/server.pid` and its output in
   `server.log`.
-- `stop` terminates the matching Java process (by Pid, falling back to scanning
-  `/proc` for `org.languagetool.server.HTTPServer`) and waits for the port to
-  close.
+- `stop` terminates only verified LanguageTool server processes (the Java
+  process whose main class is `org.languagetool.server.HTTPServer` with a
+  LanguageTool classpath, or the `/usr/bin/languagetool --http` wrapper) and
+  waits for the port to close. Processes that merely mention the class name in
+  their arguments are never signalled.
 
 ## Development
 
